@@ -48,6 +48,10 @@ func (m *RealtimeDataManager) receive(r Reply) (UpdateStatus, error) {
 }
 
 func (m *RealtimeDataManager) preDestroy() {
+	req := CancelRealTimeBars{
+		id: m.request.id,
+	}
+	m.eng.Send(&req)
 	m.eng.Unsubscribe(m.rc, m.request.id)
 }
 
