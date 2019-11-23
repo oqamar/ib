@@ -32,16 +32,16 @@ func (m *RealtimeDataManager) preLoop() error {
 }
 
 func (m *RealtimeDataManager) receive(r Reply) (UpdateStatus, error) {
-	switch r.(type) {
+	switch r := r.(type) {
 	case *ErrorMessage:
-		r := r.(*ErrorMessage)
 		if r.SeverityWarning() {
 			return UpdateFalse, nil
 		}
 		return UpdateFalse, r.Error()
 	case *RealtimeBars:
-		hd := r.(*RealtimeBars)
-		m.rtData = hd
+		m.rwm.Lock()
+		defer m.rwm.Unlock()
+		m.rtData = r
 		return UpdateTrue, nil
 	}
 	return UpdateFalse, fmt.Errorf("Unexpected type %v", r)

@@ -32,16 +32,14 @@ func (m *HistoricalDataManager) preLoop() error {
 }
 
 func (m *HistoricalDataManager) receive(r Reply) (UpdateStatus, error) {
-	switch r.(type) {
+	switch r := r.(type) {
 	case *ErrorMessage:
-		r := r.(*ErrorMessage)
 		if r.SeverityWarning() {
 			return UpdateFalse, nil
 		}
 		return UpdateFalse, r.Error()
 	case *HistoricalData:
-		hd := r.(*HistoricalData)
-		m.histData = hd.Data
+		m.histData = r.Data
 		return UpdateFinish, nil
 	}
 	return UpdateFalse, fmt.Errorf("Unexpected type %v", r)
