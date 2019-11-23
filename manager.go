@@ -102,6 +102,7 @@ func (a *AbstractManager) startMainLoop(preLoop func() error, receive func(r Rep
 
 	defer func() {
 		<-preLoopFinished // ensures preLoop goroutine has exited
+		close(preLoopFinished)
 		preDestroy()
 		a.eng.UnsubscribeState(a.engs)
 		close(a.update)
