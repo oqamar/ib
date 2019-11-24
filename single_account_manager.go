@@ -6,10 +6,11 @@ import (
 
 // SingleAccountManager tracks the account's values and portfolio.
 type SingleAccountManager struct {
-	AbstractManager
+	*AbstractManager
 	id        int64
 	values    map[AccountValueKey]AccountValue
 	portfolio map[PortfolioValueKey]PortfolioValue
+	loaded    bool
 }
 
 // NewSingleAccountManager .
@@ -20,7 +21,7 @@ func NewSingleAccountManager(e *Engine) (*SingleAccountManager, error) {
 	}
 
 	s := &SingleAccountManager{
-		AbstractManager: *am,
+		AbstractManager: am,
 		id:              UnmatchedReplyID,
 		values:          map[AccountValueKey]AccountValue{},
 		portfolio:       map[PortfolioValueKey]PortfolioValue{},
@@ -33,7 +34,7 @@ func NewSingleAccountManager(e *Engine) (*SingleAccountManager, error) {
 func (s *SingleAccountManager) preLoop() error {
 	s.eng.Subscribe(s.rc, s.id)
 
-	return s.eng.Send(&RequestAccountUpdates{})
+	return s.eng.Send(&RequestAccountUpdates{Subscribe: true})
 }
 
 func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
@@ -46,16 +47,24 @@ func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
 	case *NextValidID:
 		return UpdateFalse, nil
 	case *AccountUpdateTime:
+		if s.loaded {
+			return UpdateTrue, nil
+		}
 		return UpdateFalse, nil
 	case *AccountValue:
-		s.rwm.Lock()
-		defer s.rwm.Unlock()
 		s.values[r.Key] = *r
-		return UpdateTrue, nil
+		if s.loaded {
+			return UpdateTrue, nil
+		}
+		return UpdateFalse, nil
 	case *PortfolioValue:
-		s.rwm.Lock()
-		defer s.rwm.Unlock()
 		s.portfolio[r.Key] = *r
+		if s.loaded {
+			return UpdateTrue, nil
+		}
+		return UpdateFalse, nil
+	case *AccountDownloadEnd:
+		s.loaded = true
 		return UpdateTrue, nil
 	}
 	return UpdateFalse, fmt.Errorf("Unexpected type %v", r)
@@ -63,9 +72,7 @@ func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
 
 func (s *SingleAccountManager) preDestroy() {
 	s.eng.Unsubscribe(s.rc, s.id)
-	req := &RequestAccountUpdates{}
-	req.Subscribe = false
-	s.eng.Send(req)
+	s.eng.Send(&RequestAccountUpdates{Subscribe: false})
 }
 
 // Values returns the most recent snapshot of account information.
