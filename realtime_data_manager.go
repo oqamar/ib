@@ -37,14 +37,12 @@ func (m *RealtimeDataManager) receive(r Reply) (UpdateStatus, error) {
 		if r.SeverityWarning() {
 			return UpdateFalse, nil
 		}
-		return UpdateFalse, r.Error()
+		return UpdateTrue, r.Error()
 	case *RealtimeBars:
-		m.rwm.Lock()
-		defer m.rwm.Unlock()
 		m.rtData = r
 		return UpdateTrue, nil
 	}
-	return UpdateFalse, fmt.Errorf("Unexpected type %v", r)
+	return UpdateTrue, fmt.Errorf("Unexpected type %v", r)
 }
 
 func (m *RealtimeDataManager) preDestroy() {
