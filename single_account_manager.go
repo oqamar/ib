@@ -43,9 +43,7 @@ func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
 		if r.SeverityWarning() {
 			return UpdateFalse, nil
 		}
-		return UpdateFalse, r.Error()
-	case *NextValidID:
-		return UpdateFalse, nil
+		return UpdateTrue, r.Error()
 	case *AccountUpdateTime:
 		if s.loaded {
 			return UpdateTrue, nil
@@ -67,12 +65,12 @@ func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
 		s.loaded = true
 		return UpdateTrue, nil
 	}
-	return UpdateFalse, fmt.Errorf("Unexpected type %v", r)
+	return UpdateTrue, fmt.Errorf("Unexpected type %v", r)
 }
 
 func (s *SingleAccountManager) preDestroy() {
-	s.eng.Unsubscribe(s.rc, s.id)
 	s.eng.Send(&RequestAccountUpdates{Subscribe: false})
+	s.eng.Unsubscribe(s.rc, s.id)
 }
 
 // Values returns the most recent snapshot of account information.
