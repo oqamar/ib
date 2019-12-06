@@ -352,6 +352,11 @@ func (e *Engine) NextRequestID() int64 {
 	return <-e.id
 }
 
+// SetRequestID sets the next reqeust ID and increments from there
+func (e *Engine) SetRequestID(i int64) {
+	e.id = uniqueID(i)
+}
+
 // ClientID .
 func (e *Engine) ClientID() int64 {
 	return e.client
