@@ -241,6 +241,8 @@ func (e *Engine) startMainLoop() {
 					continue outer
 				case <-time.After(5 * time.Second):
 					log.Printf("Waited 5 seconds for state channel %v\n", ob)
+					// add continue to not get stuck?
+					// continue outer
 				}
 			}
 		}
