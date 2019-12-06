@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -582,22 +581,6 @@ func (e *Engine) Send(r Request) error {
 		return fmt.Errorf("Engine has already exited normally")
 	case <-t.ack:
 		return nil
-	}
-}
-
-type packetError struct {
-	value interface{}
-	kind  reflect.Type
-}
-
-func (e *packetError) Error() string {
-	return fmt.Sprintf("don't understand packet '%v' of type '%v'", e.value, e.kind)
-}
-
-func failPacket(v interface{}) error {
-	return &packetError{
-		value: v,
-		kind:  reflect.ValueOf(v).Type(),
 	}
 }
 
