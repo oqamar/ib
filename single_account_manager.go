@@ -34,7 +34,7 @@ func NewSingleAccountManager(e *Engine) (*SingleAccountManager, error) {
 func (s *SingleAccountManager) preLoop() error {
 	s.eng.Subscribe(s.rc, s.id)
 
-	return s.eng.Send(&RequestAccountUpdates{Subscribe: true})
+	return s.eng.Send(&RequestAccountUpdates{Subscribe: true, AccountCode: "primary"})
 }
 
 func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
@@ -64,12 +64,13 @@ func (s *SingleAccountManager) receive(r Reply) (UpdateStatus, error) {
 	case *AccountDownloadEnd:
 		s.loaded = true
 		return UpdateTrue, nil
+	default:
+		return UpdateTrue, fmt.Errorf("Unexpected type %v", r)
 	}
-	return UpdateTrue, fmt.Errorf("Unexpected type %v", r)
 }
 
 func (s *SingleAccountManager) preDestroy() {
-	s.eng.Send(&RequestAccountUpdates{Subscribe: false})
+	s.eng.Send(&RequestAccountUpdates{Subscribe: false, AccountCode: "primary"})
 	s.eng.Unsubscribe(s.rc, s.id)
 }
 
