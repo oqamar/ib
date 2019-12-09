@@ -272,41 +272,48 @@ func (e *Engine) startMainLoop() {
 }
 
 func (e *Engine) deliverToObservers(r Reply) {
-	if r.code() == mErrorMessage {
-		var done []chan<- Reply
-		for _, o := range e.observers {
-			for _, prevDone := range done {
-				if o == prevDone {
-					continue
+	switch r.(type) {
+	// special case if reply is NextValidID, reset engine's e.id
+	case *NextValidID:
+		r := r.(*NextValidID)
+		e.id = uniqueID(r.OrderID)
+	default:
+		if r.code() == mErrorMessage {
+			var done []chan<- Reply
+			for _, o := range e.observers {
+				for _, prevDone := range done {
+					if o == prevDone {
+						continue
+					}
 				}
+				done = append(done, o)
+				e.deliverToObserver(o, r)
 			}
-			done = append(done, o)
-			e.deliverToObserver(o, r)
+			for _, o := range e.unObservers {
+				e.deliverToObserver(o, r)
+			}
+			for _, o := range e.allObservers {
+				e.deliverToObserver(o, r)
+			}
+			return
 		}
+		if mr, ok := r.(MatchedReply); ok {
+			if o, ok := e.observers[mr.ID()]; ok {
+				e.deliverToObserver(o, r)
+			}
+
+			for _, o := range e.allObservers {
+				e.deliverToObserver(o, r)
+			}
+			return
+		}
+		// must be a non-error, unmatched reply
 		for _, o := range e.unObservers {
 			e.deliverToObserver(o, r)
 		}
 		for _, o := range e.allObservers {
 			e.deliverToObserver(o, r)
 		}
-		return
-	}
-	if mr, ok := r.(MatchedReply); ok {
-		if o, ok := e.observers[mr.ID()]; ok {
-			e.deliverToObserver(o, r)
-		}
-
-		for _, o := range e.allObservers {
-			e.deliverToObserver(o, r)
-		}
-		return
-	}
-	// must be a non-error, unmatched reply
-	for _, o := range e.unObservers {
-		e.deliverToObserver(o, r)
-	}
-	for _, o := range e.allObservers {
-		e.deliverToObserver(o, r)
 	}
 }
 
@@ -352,11 +359,6 @@ func (e *Engine) transmit(r Request) (err error) {
 // NextRequestID returns a unique request id (which is never UnmatchedReplyID).
 func (e *Engine) NextRequestID() int64 {
 	return <-e.id
-}
-
-// SetRequestID sets the next reqeust ID and increments from there
-func (e *Engine) SetRequestID(i int64) {
-	e.id = uniqueID(i)
 }
 
 // ClientID .
