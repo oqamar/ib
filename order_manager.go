@@ -14,6 +14,7 @@ type OrderManager struct {
 	*AbstractManager
 	orders map[int64]*OrderInfo
 	unread map[int64]bool
+	//cancel chan bool
 }
 
 type OrderInfo struct {
@@ -33,6 +34,7 @@ func NewOrderManager(e *Engine) (*OrderManager, error) {
 		AbstractManager: am,
 		orders:          make(map[int64]*OrderInfo),
 		unread:          make(map[int64]bool),
+		//cancel:          make(chan bool, 1),
 	}
 
 	go s.startMainLoop(s.preLoop, s.receive, s.preDestroy)
@@ -49,20 +51,19 @@ func (o *OrderManager) receive(r Reply) (UpdateStatus, error) {
 		if r.SeverityWarning() {
 			return UpdateFalse, nil
 		}
+		if r.Code == 202 {
+			fmt.Printf("canceled # %d: %d -- %s\n", r.id, r.Code, r.Error())
+			//cancel <- true
+			return UpdateFalse, nil
+		}
 		return UpdateTrue, r.Error()
 	case *OpenOrder:
 		oi := o.orders[r.Order.OrderID]
-		if oi == nil {
-			oi = &OrderInfo{}
-		}
 		oi.Order = &r.Order
 		o.unread[r.Order.OrderID] = true
 		return UpdateTrue, nil
 	case *OrderStatus:
 		oi := o.orders[r.id]
-		if oi == nil {
-			oi = &OrderInfo{}
-		}
 		oi.OrderStatus = r
 		o.unread[r.id] = true
 		return UpdateTrue, nil
@@ -75,7 +76,7 @@ func (o *OrderManager) receive(r Reply) (UpdateStatus, error) {
 		o.unread[r.id] = true
 		return UpdateTrue, nil
 	default:
-		return UpdateTrue, fmt.Errorf("Unexpected type %[1]T: %[1]v", r)
+		return UpdateTrue, fmt.Errorf("Unexpected type %T: %v", r, r)
 	}
 }
 
@@ -93,8 +94,12 @@ func (o *OrderManager) SendOrder(req *PlaceOrder) error {
 	}
 	o.rwm.Lock()
 	defer o.rwm.Unlock()
-	o.orders[req.id] = nil
+	o.orders[req.id] = &OrderInfo{}
 	return nil
+}
+
+func (o *OrderManager) CancelOrder(req *CancelOrder) error {
+	return o.eng.Send(req)
 }
 
 func (o *OrderManager) NewData() []*OrderInfo {
@@ -116,8 +121,10 @@ func (o *OrderManager) AllData() []*OrderInfo {
 	o.rwm.RLock()
 	defer o.rwm.RUnlock()
 	var ois []*OrderInfo
-	for k := range o.orders {
-		ois = append(ois, o.orders[k])
+	for _, v := range o.orders {
+		if v != nil {
+			ois = append(ois, v)
+		}
 	}
 	return ois
 }
