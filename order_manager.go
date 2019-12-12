@@ -4,24 +4,20 @@ import (
 	"fmt"
 )
 
-type orderValue struct {
-	seen  bool
-	Order Order
-}
-
 // SingleAccountManager tracks the account's values and portfolio.
 type OrderManager struct {
 	*AbstractManager
-	orders map[int64]*OrderInfo
-	unread map[int64]bool
-	//cancel chan bool
+	allOrders map[int64]*OrderInfo
+	newOrders map[int64]*OrderInfo
 }
 
 type OrderInfo struct {
-	Order         *Order
+	OpenOrder     *OpenOrder
 	OrderStatus   *OrderStatus
-	ExecutionData *ExecutionData
+	ExecutionData []*ExecutionData
 }
+
+var allIDs, newIDs []int64
 
 // NewOrderManager .
 func NewOrderManager(e *Engine) (*OrderManager, error) {
@@ -32,9 +28,8 @@ func NewOrderManager(e *Engine) (*OrderManager, error) {
 
 	s := &OrderManager{
 		AbstractManager: am,
-		orders:          make(map[int64]*OrderInfo),
-		unread:          make(map[int64]bool),
-		//cancel:          make(chan bool, 1),
+		allOrders:       make(map[int64]*OrderInfo),
+		newOrders:       make(map[int64]*OrderInfo),
 	}
 
 	go s.startMainLoop(s.preLoop, s.receive, s.preDestroy)
@@ -58,22 +53,25 @@ func (o *OrderManager) receive(r Reply) (UpdateStatus, error) {
 		}
 		return UpdateTrue, r.Error()
 	case *OpenOrder:
-		oi := o.orders[r.Order.OrderID]
-		oi.Order = &r.Order
-		o.unread[r.Order.OrderID] = true
+		id := r.Order.OrderID
+		aoi := o.allOrders[id]
+		aoi.OpenOrder = r
+		noi := o.newOrders[id]
+		noi.OpenOrder = r
 		return UpdateTrue, nil
 	case *OrderStatus:
-		oi := o.orders[r.id]
-		oi.OrderStatus = r
-		o.unread[r.id] = true
+		id := r.id
+		aoi := o.allOrders[id]
+		aoi.OrderStatus = r
+		noi := o.newOrders[id]
+		noi.OrderStatus = r
 		return UpdateTrue, nil
 	case *ExecutionData:
-		oi := o.orders[r.id]
-		if oi == nil {
-			oi = &OrderInfo{}
-		}
-		oi.ExecutionData = r
-		o.unread[r.id] = true
+		id := r.id
+		aoi := o.allOrders[id]
+		aoi.ExecutionData = append(aoi.ExecutionData, r)
+		noi := o.newOrders[id]
+		noi.ExecutionData = append(noi.ExecutionData, r)
 		return UpdateTrue, nil
 	default:
 		return UpdateTrue, fmt.Errorf("Unexpected type %T: %v", r, r)
@@ -81,8 +79,8 @@ func (o *OrderManager) receive(r Reply) (UpdateStatus, error) {
 }
 
 func (o *OrderManager) preDestroy() {
-	for k := range o.orders {
-		o.eng.Unsubscribe(o.rc, k)
+	for _, id := range allIDs {
+		o.eng.Unsubscribe(o.rc, id)
 	}
 }
 
@@ -94,11 +92,15 @@ func (o *OrderManager) SendOrder(req *PlaceOrder) error {
 	}
 	o.rwm.Lock()
 	defer o.rwm.Unlock()
-	o.orders[req.id] = &OrderInfo{}
+	o.allOrders[req.id] = &OrderInfo{}
+	o.newOrders[req.id] = &OrderInfo{}
+	allIDs = append(allIDs, req.id)
+	newIDs = append(newIDs, req.id)
 	return nil
 }
 
 func (o *OrderManager) CancelOrder(req *CancelOrder) error {
+	o.eng.Unsubscribe(o.rc, req.id)
 	return o.eng.Send(req)
 }
 
@@ -106,14 +108,11 @@ func (o *OrderManager) NewData() []*OrderInfo {
 	o.rwm.Lock()
 	defer o.rwm.Unlock()
 	var ois []*OrderInfo
-	var seen []int64
-	for k := range o.unread {
-		ois = append(ois, o.orders[k])
-		seen = append(seen, k)
+	for _, id := range newIDs {
+		ois = append(ois, o.newOrders[id])
 	}
-	for _, id := range seen {
-		delete(o.unread, id)
-	}
+	o.newOrders = map[int64]*OrderInfo{}
+	newIDs = []int64{}
 	return ois
 }
 
@@ -121,9 +120,9 @@ func (o *OrderManager) AllData() []*OrderInfo {
 	o.rwm.RLock()
 	defer o.rwm.RUnlock()
 	var ois []*OrderInfo
-	for _, v := range o.orders {
-		if v != nil {
-			ois = append(ois, v)
+	for _, id := range allIDs {
+		if o.allOrders[id] != nil {
+			ois = append(ois, o.allOrders[id])
 		}
 	}
 	return ois
