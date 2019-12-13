@@ -41,6 +41,7 @@ func NewOrderManager(e *Engine) (*OrderManager, error) {
 }
 
 func (o *OrderManager) preLoop() error {
+	o.eng.SubscribeAll(o.rc)
 	return nil
 }
 
