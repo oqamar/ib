@@ -2,16 +2,14 @@ package ib
 
 import (
 	"fmt"
-	"sync"
 )
 
 // SingleAccountManager tracks the account's values and portfolio.
 type OrderManager struct {
 	*AbstractManager
 	orders      []*OrderInfo
-	orderErrors chan bool
-	orderError  string
-	oRwm        *sync.RWMutex
+	chOrders    chan *OrderInfo
+	chOrderErrs chan error
 }
 
 type OrderInfo struct {
@@ -21,9 +19,7 @@ type OrderInfo struct {
 	ExecutionData *ExecutionData
 }
 
-var hidx int
-
-// NewOrderManager .
+// NewOrderManager
 func NewOrderManager(e *Engine) (*OrderManager, error) {
 	am, err := NewAbstractManager(e)
 	if err != nil {
@@ -32,8 +28,8 @@ func NewOrderManager(e *Engine) (*OrderManager, error) {
 
 	s := &OrderManager{
 		AbstractManager: am,
-		orderErrors:     make(chan bool),
-		oRwm:            &sync.RWMutex{},
+		chOrders:        make(chan *OrderInfo),
+		chOrderErrs:     make(chan error),
 	}
 
 	go s.startMainLoop(s.preLoop, s.receive, s.preDestroy)
@@ -41,6 +37,7 @@ func NewOrderManager(e *Engine) (*OrderManager, error) {
 }
 
 func (o *OrderManager) preLoop() error {
+	//o.eng.Subscribe(o.rc, UnmatchedReplyID)
 	o.eng.SubscribeAll(o.rc)
 	return nil
 }
@@ -51,30 +48,32 @@ func (o *OrderManager) receive(r Reply) (UpdateStatus, error) {
 		if r.SeverityWarning() {
 			return UpdateFalse, nil
 		}
-		o.oRwm.Lock()
-		o.orderError = fmt.Sprintf("order # %d: %d -- %s", r.id, r.Code, r.Error())
-		o.oRwm.Unlock()
-		o.orderErrors <- true
+		if r.Code >= 200 && r.Code <= 203 {
+			o.chOrderErrs <- fmt.Errorf("order # %d: %d -- %s", r.id, r.Code, r.Error())
+		} else {
+			fmt.Printf("error %d: %d -- %s\n", r.id, r.Code, r.Error())
+		}
 		return UpdateFalse, nil
 	case *OpenOrder:
 		id := r.ID()
-		o.orders = append(o.orders, &OrderInfo{ID: id, OpenOrder: r})
-		return UpdateTrue, nil
+		oi := &OrderInfo{ID: id, OpenOrder: r}
+		o.orders = append(o.orders, oi)
+		o.chOrders <- oi
+		return UpdateFalse, nil
 	case *OrderStatus:
 		id := r.ID()
-		o.orders = append(o.orders, &OrderInfo{ID: id, OrderStatus: r})
-		return UpdateTrue, nil
+		oi := &OrderInfo{ID: id, OrderStatus: r}
+		o.orders = append(o.orders, oi)
+		o.chOrders <- oi
+		return UpdateFalse, nil
 	case *ExecutionData:
-		id := r.ID()
-		o.orders = append(o.orders, &OrderInfo{ID: id, ExecutionData: r})
-		return UpdateTrue, nil
-	default:
-		o.oRwm.Lock()
-		o.orderError = fmt.Sprintf("Unexpected type %T: %v", r, r)
-		o.oRwm.Unlock()
-		o.orderErrors <- true
+		id := r.Exec.OrderID
+		oi := &OrderInfo{ID: id, ExecutionData: r}
+		o.orders = append(o.orders, oi)
+		o.chOrders <- oi
 		return UpdateFalse, nil
 	}
+	return UpdateFalse, nil
 }
 
 func (o *OrderManager) preDestroy() {
@@ -87,19 +86,17 @@ func (o *OrderManager) preDestroy() {
 	}
 }
 
-func (o *OrderManager) ErrorRefresh() <-chan bool {
-	return o.orderErrors
+func (o *OrderManager) OrderRefresh() <-chan *OrderInfo {
+	return o.chOrders
 }
 
-func (o *OrderManager) OrderError() string {
-	o.oRwm.Lock()
-	defer o.oRwm.Unlock()
-	return o.orderError
+func (o *OrderManager) ErrorRefresh() <-chan error {
+	return o.chOrderErrs
 }
 
 func (o *OrderManager) SendOrder(reqs []*PlaceOrder) error {
 	for _, req := range reqs {
-		o.eng.Subscribe(o.rc, req.id)
+		//o.eng.Subscribe(o.rc, req.id)
 		err := o.eng.Send(req)
 		if err != nil {
 			return err
@@ -110,18 +107,6 @@ func (o *OrderManager) SendOrder(reqs []*PlaceOrder) error {
 
 func (o *OrderManager) CancelOrder(req *CancelOrder) error {
 	return o.eng.Send(req)
-}
-
-func (o *OrderManager) NewData() []*OrderInfo {
-	o.rwm.Lock()
-	defer o.rwm.Unlock()
-	var ois []*OrderInfo
-	nhidx := len(o.orders)
-	for i := hidx; i < nhidx; i++ {
-		ois = append(ois, o.orders[i])
-	}
-	hidx = nhidx
-	return ois
 }
 
 func (o *OrderManager) AllData() []*OrderInfo {
