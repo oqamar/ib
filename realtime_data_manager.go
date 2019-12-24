@@ -1,7 +1,5 @@
 package ib
 
-import "fmt"
-
 // RealtimeDataManager .
 type RealtimeDataManager struct {
 	*AbstractManager
@@ -33,16 +31,16 @@ func (m *RealtimeDataManager) preLoop() error {
 
 func (m *RealtimeDataManager) receive(r Reply) (UpdateStatus, error) {
 	switch r := r.(type) {
-	case *ErrorMessage:
-		if r.SeverityWarning() {
-			return UpdateFalse, nil
-		}
-		return UpdateTrue, r.Error()
+	//case *ErrorMessage:
+	//	if r.SeverityWarning() {
+	//		return UpdateFalse, nil
+	//	}
+	//	return UpdateTrue, r.Error()
 	case *RealtimeBars:
 		m.rtData = r
 		return UpdateTrue, nil
 	}
-	return UpdateTrue, fmt.Errorf("Unexpected type %v", r)
+	return UpdateFalse, nil
 }
 
 func (m *RealtimeDataManager) preDestroy() {
